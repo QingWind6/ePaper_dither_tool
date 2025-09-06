@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="zh" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>E‑Ink Dithering (BW)</title>
+  <style>
+    :root{--bg:#f7f8fa;--card:#fff;--border:#e5e7eb;--text:#0f172a;--muted:#6b7280;--accent:#3b82f6;--accent-2:#1e40af}
+    [data-theme="dark"]{--bg:#0b0f1a;--card:#0f172a;--border:#1f2937;--text:#e5e7eb;--muted:#9ca3af;--accent:#60a5fa;--accent-2:#93c5fd}
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0;background:var(--bg);color:var(--text);font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,Helvetica,Arial}
+    header{max-width:1100px;margin:24px auto 0;padding:0 16px;display:flex;align-items:center;justify-content:space-between}
+    .brand{display:flex;gap:12px;align-items:center}
+    .logo{width:36px;height:36px;border-radius:9px;background:linear-gradient(145deg,var(--accent),var(--accent-2));box-shadow:0 6px 20px rgba(59,130,246,.35)}
+    .title{font-weight:800;font-size:20px}
+    .controls{display:flex;gap:8px;align-items:center}
+    .seg{display:inline-flex;border:1px solid var(--border);border-radius:12px;overflow:hidden}
+    .seg button{padding:8px 12px;background:transparent;color:var(--text);border:0;cursor:pointer}
+    .seg button.active{background:var(--accent);color:#fff}
+    .toggle{border:1px solid var(--border);border-radius:12px;padding:8px 12px;background:transparent;color:var(--text);cursor:pointer}
+    main{max-width:1100px;margin:16px auto 40px;padding:0 16px;display:grid;gap:16px}
+    .grid{display:grid;grid-template-columns:minmax(320px,420px) 1fr;gap:16px;align-items:start}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:16px;box-shadow:0 6px 26px rgba(0,0,0,.06)}
+    h2{margin:0 0 8px 0;font-size:18px}
+    p.desc{margin:0 0 10px 0;color:var(--muted)}
+    label{font-weight:600;font-size:13px;color:var(--muted)}
+    input,select,button{font:inherit}
+    input[type="number"],select{width:100%;border:1px solid var(--border);border-radius:12px;padding:8px 10px;background:transparent;color:var(--text)}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px}
+    .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:10px}
+    .btn{padding:10px 14px;border-radius:12px;border:1px solid var(--border);background:var(--card);cursor:pointer}
+    .btn.primary{background:var(--accent);border-color:transparent;color:#fff}
+    .btn:disabled{opacity:.5;cursor:not-allowed}
+    .muted{color:var(--muted);font-size:12px}
+    .drop{border:2px dashed var(--border);border-radius:12px;padding:16px;text-align:center;color:var(--muted);transition:all .2s}
+    .drop.drag{border-color:var(--accent);color:var(--accent)}
+    canvas{max-width:100%;width:100%;border-radius:12px;border:1px solid var(--border);background:#fff}
+    footer{max-width:1100px;margin:16px auto 32px;padding:0 16px;color:var(--muted);font-size:12px}
+    @media (max-width: 900px){ .grid{grid-template-columns:1fr} }
+    .progress{height:10px;background:var(--border);border-radius:999px;overflow:hidden}
+    .progress>div{height:100%;width:0%;background:linear-gradient(90deg,var(--accent),var(--accent-2));transition:width .2s}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:12px;white-space:pre-wrap}
+    .toast{position:fixed;right:16px;bottom:16px;background:var(--card);border:1px solid var(--border);padding:10px 12px;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.12);max-width:70vw}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <div class="logo"></div>
+      <div class="title" data-i18n="title">E‑Ink Dithering (Black & White)</div>
+    </div>
+    <div class="controls">
+      <div class="seg" id="langSeg">
+        <button data-lang="zh" class="active">中文</button>
+        <button data-lang="en">EN</button>
+      </div>
+      <button class="toggle" id="themeBtn" title="Toggle theme">☀︎/☾</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="grid">
+      <section class="card">
+        <h2 data-i18n="panel_settings">Settings</h2>
+        <p class="desc" data-i18n="panel_hint">Resize & dither your image for black/white e‑paper. All in the browser.</p>
+
+        <div class="drop" id="dropSingle">
+          <div data-i18n="drop_text">Drop image here or click to select</div>
+          <input type="file" id="fileSingle" accept="image/*" style="display:none">
+        </div>
+
+        <div class="row">
+          <div>
+            <label data-i18n="label_width">Width</label>
+            <input type="number" id="w" value="800" min="1">
+          </div>
+          <div>
+            <label data-i18n="label_height">Height</label>
+            <input type="number" id="h" value="480" min="1">
+          </div>
+        </div>
+
+        <div class="row">
+          <div>
+            <label data-i18n="label_fit">Fit mode</label>
+            <select id="fit">
+              <option value="contain" data-i18n="fit_contain">Contain (letterbox)</option>
+              <option value="cover" data-i18n="fit_cover">Cover (crop)</option>
+              <option value="stretch" data-i18n="fit_stretch">Stretch</option>
+            </select>
+          </div>
+          <div>
+            <label data-i18n="label_algo">Algorithm</label>
+            <select id="algo">
+              <option value="fs" data-i18n="algo_fs">Floyd–Steinberg</option>
+              <option value="atkinson" data-i18n="algo_atkinson">Atkinson</option>
+              <option value="ordered" data-i18n="algo_ordered">Ordered (Bayer)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row3">
+          <div>
+            <label data-i18n="label_threshold">Threshold</label>
+            <input type="number" id="th" value="128" min="0" max="255">
+          </div>
+          <div>
+            <label data-i18n="label_bayer">Bayer size</label>
+            <select id="bayer">
+              <option>2</option><option>4</option><option selected>8</option><option>16</option>
+            </select>
+          </div>
+          <div>
+            <label>Gamma</label>
+            <input type="number" id="gamma" value="2.2" step="0.1">
+          </div>
+        </div>
+
+        <div class="row">
+          <div>
+            <label><input type="checkbox" id="invert"> <span data-i18n="label_invert">Invert (white=ink)</span></label>
+            <div class="muted" data-i18n="hint_invert">Some panels expect the opposite bit value.</div>
+          </div>
+        </div>
+
+        <div style="display:flex; gap:8px; margin-top:12px">
+          <button class="btn primary" id="run" data-i18n="btn_process">Process</button>
+          <button class="btn" id="download" disabled data-i18n="btn_download">Download PNG</button>
+        </div>
+
+        <p class="muted" style="margin-top:10px" data-i18n="tip">
+          Tip: For text/line art, try Ordered (8/16). For photos, try Floyd–Steinberg.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2 data-i18n="panel_preview">Preview</h2>
+        <canvas id="canvas" width="800" height="480"></canvas>
+      </section>
+    </section>
+
+    <section class="card">
+      <h2 data-i18n="panel_batch">Batch Processing</h2>
+      <p class="desc" data-i18n="batch_hint">Pick multiple files or a folder (recursive). Images will be processed with the same settings and packed into a ZIP.</p>
+
+      <div class="drop" id="dropBatch">
+        <div data-i18n="drop_batch">Drop files/folder here or click to pick</div>
+        <div style="display:none">
+          <input type="file" id="fileBatchFiles" accept="image/*" multiple>
+          <input type="file" id="fileBatchFolder" webkitdirectory directory multiple>
+        </div>
+      </div>
+
+      <div class="row">
+        <div style="grid-column:1/-1">
+          <div class="progress"><div id="pbar"></div></div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div style="grid-column:1/-1;display:flex;gap:8px">
+          <button class="btn" id="btnPickFiles" data-i18n="btn_pick_files">Pick files</button>
+          <button class="btn" id="btnPickFolder" data-i18n="btn_pick_folder">Pick folder</button>
+          <button class="btn primary" id="btnProcessZip" disabled data-i18n="btn_process_zip">Process & Download ZIP</button>
+        </div>
+      </div>
+
+      <div class="mono" id="log" style="margin-top:10px;max-height:160px;overflow:auto;"></div>
+    </section>
+  </main>
+
+  <div class="toast" id="toast" style="display:none"></div>
+
+  <!-- <footer>
+    <span data-i18n="foot">Works fully offline. Perfect for GitHub Pages.</span>
+  </footer> -->
+
+  <script>
+  (function(){
+    // Global drag-drop default prevention to stop the browser navigating to the file URL
+    ['dragover','drop'].forEach(ev=>window.addEventListener(ev, e=>{ e.preventDefault(); }));
+
+    // Simple toast
+    function toast(msg){
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.style.display = 'block';
+      clearTimeout(window.__toastTimer);
+      window.__toastTimer = setTimeout(()=> t.style.display='none', 4000);
+    }
+    window.addEventListener('error', (e)=>{ console.error(e.error||e.message); toast('Error: ' + (e.message||'unknown')); });
+
+    // i18n
+    const dict = {
+      zh: {
+        title: "E‑Ink 抖动转黑白工具",
+        panel_settings: "参数设置",
+        panel_hint: "在浏览器中完成缩放、灰度与抖动，适合黑白墨水屏。",
+        drop_text: "拖拽图片到这里，或点击选择",
+        label_width: "宽度",
+        label_height: "高度",
+        label_fit: "适配模式",
+        fit_contain: "Contain（等比留白）",
+        fit_cover: "Cover（裁切填满）",
+        fit_stretch: "Stretch（拉伸）",
+        label_algo: "抖动算法",
+        algo_fs: "Floyd–Steinberg",
+        algo_atkinson: "Atkinson",
+        algo_ordered: "有序抖动（Bayer）",
+        label_threshold: "阈值",
+        label_bayer: "Bayer 阵列",
+        label_invert: "反相（白=着色）",
+        hint_invert: "部分墨水屏固件位义相反时需要反相。",
+        btn_process: "处理",
+        btn_download: "下载 PNG",
+        tip: "提示：文字/线稿可尝试有序抖动（8/16）；照片尝试 Floyd–Steinberg。",
+        panel_preview: "预览",
+        foot: "完全离线运行，适合 GitHub Pages 部署。",
+        panel_batch: "批量处理",
+        batch_hint: "选择多个文件或一个文件夹（递归）。将按当前参数处理并打包为 ZIP。",
+        drop_batch: "将文件/文件夹拖到这里，或点击选择",
+        btn_pick_files: "选择文件",
+        btn_pick_folder: "选择文件夹",
+        btn_process_zip: "批量处理并下载 ZIP",
+        log_selected: "已选择文件数：",
+        log_processing: "正在处理",
+        log_done: "完成",
+        alert_choose_img: "请先选择一张图片"
+      },
+      en: {
+        title: "E‑Ink Dithering (Black & White)",
+        panel_settings: "Settings",
+        panel_hint: "Resize & dither in the browser for black/white e‑paper.",
+        drop_text: "Drop image here or click to select",
+        label_width: "Width",
+        label_height: "Height",
+        label_fit: "Fit mode",
+        fit_contain: "Contain (letterbox)",
+        fit_cover: "Cover (crop)",
+        fit_stretch: "Stretch",
+        label_algo: "Algorithm",
+        algo_fs: "Floyd–Steinberg",
+        algo_atkinson: "Atkinson",
+        algo_ordered: "Ordered (Bayer)",
+        label_threshold: "Threshold",
+        label_bayer: "Bayer size",
+        label_invert: "Invert (white=ink)",
+        hint_invert: "Some panels expect the opposite bit value.",
+        btn_process: "Process",
+        btn_download: "Download PNG",
+        tip: "Tip: For text/line art, try Ordered (8/16). For photos, try Floyd–Steinberg.",
+        panel_preview: "Preview",
+        foot: "Works fully offline. Perfect for GitHub Pages.",
+        panel_batch: "Batch Processing",
+        batch_hint: "Pick multiple files or a folder (recursive). Images are processed with current settings into a ZIP.",
+        drop_batch: "Drop files/folder here or click to pick",
+        btn_pick_files: "Pick files",
+        btn_pick_folder: "Pick folder",
+        btn_process_zip: "Process & Download ZIP",
+        log_selected: "Selected files: ",
+        log_processing: "Processing",
+        log_done: "Done",
+        alert_choose_img: "Please choose an image first"
+      }
+    };
+    function setLang(lang){
+      localStorage.setItem('lang', lang);
+      for (const el of document.querySelectorAll('[data-i18n]')){
+        const key = el.getAttribute('data-i18n');
+        el.textContent = dict[lang][key];
+      }
+      document.querySelectorAll('#langSeg button').forEach(b=>b.classList.toggle('active', b.dataset.lang===lang));
+      document.documentElement.lang = lang;
+    }
+    const savedLang = (localStorage.getItem('lang') || ((navigator.language||'en').startsWith('zh') ? 'zh' : 'en'));
+    setLang(savedLang);
+    document.getElementById('langSeg').addEventListener('click', (e)=>{
+      const btn = e.target.closest('button'); if(!btn) return;
+      setLang(btn.dataset.lang);
+    });
+
+    // theme
+    const themeBtn = document.getElementById('themeBtn');
+    const savedTheme = (localStorage.getItem('theme') || 'light');
+    document.documentElement.setAttribute('data-theme', savedTheme);
+    themeBtn.addEventListener('click', ()=>{
+      const cur = document.documentElement.getAttribute('data-theme');
+      const next = cur==='light'?'dark':'light';
+      document.documentElement.setAttribute('data-theme', next);
+      localStorage.setItem('theme', next);
+    });
+
+    // Single
+    const dropSingle = document.getElementById('dropSingle');
+    const fileSingle = document.getElementById('fileSingle');
+    const wEl = document.getElementById('w');
+    const hEl = document.getElementById('h');
+    const fitEl = document.getElementById('fit');
+    const algoEl = document.getElementById('algo');
+    const thEl = document.getElementById('th');
+    const bayerEl = document.getElementById('bayer');
+    const gammaEl = document.getElementById('gamma');
+    const invertEl = document.getElementById('invert');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d', {willReadFrequently:true});
+    const runBtn = document.getElementById('run');
+    const dlBtn = document.getElementById('download');
+
+    let imageBitmapSingle = null;
+
+    function openPickerSingle(){ fileSingle.click(); }
+    dropSingle.addEventListener('click', openPickerSingle);
+    dropSingle.addEventListener('dragover', e=>{ e.preventDefault(); dropSingle.classList.add('drag'); });
+    dropSingle.addEventListener('dragleave', ()=> dropSingle.classList.remove('drag'));
+    dropSingle.addEventListener('drop', async e=>{
+      e.preventDefault(); dropSingle.classList.remove('drag');
+      const f = e.dataTransfer.files?.[0]; if (!f) return;
+      await loadSingleFile(f);
+    });
+    fileSingle.addEventListener('change', async ()=>{
+      const f = fileSingle.files?.[0]; if (!f) return;
+      await loadSingleFile(f);
+    });
+
+    async function loadSingleFile(f){
+      const bmp = await fileToImageBitmap(f);
+      imageBitmapSingle = bmp;
+      previewSingle();
+    }
+
+    function computeDrawParams(iw, ih, W, H, fit){
+      if (fit === 'stretch') return {sx:0,sy:0,sw:iw,sh:ih,dx:0,dy:0,dw:W,dh:H};
+      const ir = iw/ih, r = W/H;
+      if (fit === 'cover'){
+        let sw, sh, sx=0, sy=0;
+        if (ir > r){ sh = ih; sw = Math.round(ih * r); sx = Math.round((iw - sw)/2); }
+        else { sw = iw; sh = Math.round(iw / r); sy = Math.round((ih - sh)/2); }
+        return {sx,sy,sw,sh,dx:0,dy:0,dw:W,dh:H};
+      }else{
+        if (ir > r){ const dw=W, dh=Math.round(W/ir); return {sx:0,sy:0,sw:iw,sh:ih,dx:0,dy:Math.round((H-dh)/2),dw,dh}; }
+        else { const dh=H, dw=Math.round(H*ir); return {sx:0,sy:0,sw:iw,sh:ih,dx:Math.round((W-dw)/2),dy:0,dw,dh}; }
+      }
+    }
+
+    function previewSingle(){
+      if (!imageBitmapSingle) return;
+      const W = +wEl.value||800, H = +hEl.value||480;
+      canvas.width = W; canvas.height = H;
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      const {sx, sy, sw, sh, dx, dy, dw, dh} = computeDrawParams(imageBitmapSingle.width, imageBitmapSingle.height, W, H, fitEl.value);
+      ctx.clearRect(0,0,W,H);
+      ctx.fillStyle = '#fff'; ctx.fillRect(0,0,W,H);
+      ctx.drawImage(imageBitmapSingle, sx, sy, sw, sh, dx, dy, dw, dh);
+    }
+
+    runBtn.addEventListener('click', async () => {
+      if (!imageBitmapSingle) { alert((document.documentElement.lang==='zh')?dict.zh.alert_choose_img:dict.en.alert_choose_img); return; }
+      const W = +wEl.value||800, H = +hEl.value||480;
+      canvas.width = W; canvas.height = H;
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      const {sx, sy, sw, sh, dx, dy, dw, dh} = computeDrawParams(imageBitmapSingle.width, imageBitmapSingle.height, W, H, fitEl.value);
+      ctx.clearRect(0,0,W,H);
+      ctx.fillStyle = '#fff'; ctx.fillRect(0,0,W,H);
+      ctx.drawImage(imageBitmapSingle, sx, sy, sw, sh, dx, dy, dw, dh);
+
+      const gamma = +gammaEl.value||2.2;
+      const data = ctx.getImageData(0,0,W,H);
+      const g = toGrayscale(data.data, gamma);
+
+      const algo = algoEl.value;
+      const th = Math.max(0, Math.min(255, +thEl.value||128));
+      let out;
+      if (algo === 'fs') out = ditherFS(g, W, H, th);
+      else if (algo === 'atkinson') out = ditherAtkinson(g, W, H, th);
+      else out = ditherOrdered(g, W, H, +bayerEl.value||8);
+
+      const outImg = new ImageData(W, H);
+      const inv = invertEl.checked;
+      for (let i=0, p=0; i<W*H; i++, p+=4){
+        const v = out[i] ? 255 : 0;
+        const k = inv ? (255 - v) : v;
+        outImg.data[p] = outImg.data[p+1] = outImg.data[p+2] = k;
+        outImg.data[p+3] = 255;
+      }
+      ctx.putImageData(outImg, 0, 0);
+      dlBtn.disabled = false;
+    });
+
+    dlBtn.addEventListener('click', async () => {
+      const blob = await canvasToBlob(canvas, 'image/png');
+      const a = document.createElement('a');
+      a.download = `dithered_${canvas.width}x${canvas.height}.png`;
+      a.href = URL.createObjectURL(blob);
+      a.click();
+      setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+    });
+
+    // Batch
+    const dropBatch = document.getElementById('dropBatch');
+    const fileBatchFiles = document.getElementById('fileBatchFiles');
+    const fileBatchFolder = document.getElementById('fileBatchFolder');
+    const btnPickFiles = document.getElementById('btnPickFiles');
+    const btnPickFolder = document.getElementById('btnPickFolder');
+    const btnProcessZip = document.getElementById('btnProcessZip');
+    const pbar = document.getElementById('pbar');
+    const logEl = document.getElementById('log');
+
+    let batchFiles = [];
+
+    function log(msg){ logEl.textContent += msg + '\\n'; logEl.scrollTop = logEl.scrollHeight; }
+    function setProgress(v){ pbar.style.width = Math.max(0, Math.min(100, v)) + '%'; }
+    function enableBatch(enable){ btnProcessZip.disabled = !enable; }
+
+    function isImgName(name){
+      const s = (name||'').toLowerCase();
+      return s.endsWith('.png') || s.endsWith('.jpg') || s.endsWith('.jpeg') || s.endsWith('.bmp') || s.endsWith('.webp');
+    }
+
+    btnPickFiles.addEventListener('click', ()=> fileBatchFiles.click());
+    btnPickFolder.addEventListener('click', ()=> fileBatchFolder.click());
+    fileBatchFiles.addEventListener('change', ()=> setBatchFiles(Array.from(fileBatchFiles.files||[])));
+    fileBatchFolder.addEventListener('change', ()=> setBatchFiles(Array.from(fileBatchFolder.files||[])));
+
+    dropBatch.addEventListener('click', ()=> fileBatchFiles.click());
+    dropBatch.addEventListener('dragover', e=>{ e.preventDefault(); dropBatch.classList.add('drag'); });
+    dropBatch.addEventListener('dragleave', ()=> dropBatch.classList.remove('drag'));
+    dropBatch.addEventListener('drop', async e=>{
+      e.preventDefault(); dropBatch.classList.remove('drag');
+      const files = Array.from(e.dataTransfer.files||[]);
+      setBatchFiles(files);
+    });
+
+    function setBatchFiles(files){
+      batchFiles = files.filter(f => isImgName(f.name || f.webkitRelativePath));
+      log((document.documentElement.lang==='zh'?dict.zh.log_selected:dict.en.log_selected) + batchFiles.length);
+      enableBatch(batchFiles.length>0);
+    }
+
+    btnProcessZip.addEventListener('click', async ()=>{
+      if (!batchFiles.length) return;
+      setProgress(0); log('— ' + (document.documentElement.lang==='zh'?dict.zh.log_processing:dict.en.log_processing) + ' —');
+      btnProcessZip.disabled = true;
+
+      const W = +wEl.value||800, H = +hEl.value||480;
+      const fit = fitEl.value;
+      const algo = algoEl.value;
+      const th = Math.max(0, Math.min(255, +thEl.value||128));
+      const bayer = +bayerEl.value||8;
+      const gamma = +gammaEl.value||2.2;
+      const invert = invertEl.checked;
+
+      const zip = new ZipBuilder();
+      let done = 0;
+
+      for (const f of batchFiles){
+        const rel = (f.webkitRelativePath && f.webkitRelativePath.length>0) ? f.webkitRelativePath : f.name;
+        const outPath = replaceExt(rel, '.png');
+
+        const bmp = await fileToImageBitmap(f);
+        const off = (typeof OffscreenCanvas !== 'undefined') ? new OffscreenCanvas(W, H) : document.createElement('canvas');
+        if (!(off instanceof OffscreenCanvas)){ off.width = W; off.height = H; }
+        const offctx = off.getContext('2d', {willReadFrequently:true});
+        const {sx, sy, sw, sh, dx, dy, dw, dh} = computeDrawParams(bmp.width, bmp.height, W, H, fit);
+        offctx.imageSmoothingEnabled = true;
+        offctx.imageSmoothingQuality = 'high';
+        offctx.clearRect(0,0,W,H);
+        offctx.fillStyle = '#fff'; offctx.fillRect(0,0,W,H);
+        offctx.drawImage(bmp, sx, sy, sw, sh, dx, dy, dw, dh);
+
+        const imgData = offctx.getImageData(0,0,W,H);
+        const g = toGrayscale(imgData.data, gamma);
+        let out;
+        if (algo === 'fs') out = ditherFS(g, W, H, th);
+        else if (algo === 'atkinson') out = ditherAtkinson(g, W, H, th);
+        else out = ditherOrdered(g, W, H, bayer);
+
+        const outImg = new ImageData(W,H);
+        for (let i=0,p=0;i<W*H;i++,p+=4){
+          const v = out[i] ? 255 : 0;
+          const k = invert ? (255 - v) : v;
+          outImg.data[p]=outImg.data[p+1]=outImg.data[p+2]=k; outImg.data[p+3]=255;
+        }
+        const tctx = off.getContext('2d');
+        tctx.putImageData(outImg, 0, 0);
+        const blob = await canvasToBlob(off, 'image/png');
+        const buf = new Uint8Array(await blob.arrayBuffer());
+        zip.addFile(outPath, buf);
+
+        done++;
+        setProgress(Math.round(done*100/batchFiles.length));
+      }
+
+      const zipBlob = zip.build();
+      const a = document.createElement('a');
+      a.download = `dithered_${W}x${H}.zip`;
+      a.href = URL.createObjectURL(zipBlob);
+      a.click();
+      setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+      log('— ' + (document.documentElement.lang==='zh'?dict.zh.log_done:dict.en.log_done) + ' —');
+      btnProcessZip.disabled = false;
+    });
+
+    function replaceExt(path, newExt){
+      const i = path.lastIndexOf('.');
+      const dirSep = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+      if (i>dirSep) return path.slice(0,i) + newExt;
+      return path + newExt;
+    }
+
+    // Robust image loader with fallback when createImageBitmap is unavailable/fails
+    async function fileToImageBitmap(file){
+      if (window.createImageBitmap){
+        try{ return await createImageBitmap(file); }catch(e){ console.warn('createImageBitmap failed, fallback', e); }
+      }
+      const url = URL.createObjectURL(file);
+      try{
+        const img = await loadImage(url);
+        const c = document.createElement('canvas');
+        c.width = img.naturalWidth; c.height = img.naturalHeight;
+        const cctx = c.getContext('2d');
+        cctx.drawImage(img, 0, 0);
+        const bmp = await (self.OffscreenCanvas && c.transferControlToOffscreen ? createImageBitmap(c) : createImageBitmap ? createImageBitmap(c) : Promise.resolve(img));
+        return bmp;
+      } finally {
+        setTimeout(()=>URL.revokeObjectURL(url), 2000);
+      }
+    }
+    function loadImage(url){
+      return new Promise((res, rej)=>{
+        const img = new Image();
+        img.onload = ()=> res(img);
+        img.onerror = rej;
+        img.src = url;
+      });
+    }
+
+    // Canvas to blob, with polyfills
+    function canvasToBlob(canvas, type){
+      if (canvas && typeof canvas.convertToBlob === 'function'){
+        return canvas.convertToBlob({type});
+      }
+      if (canvas && canvas.toBlob){
+        return new Promise(r=>canvas.toBlob(r, type));
+      }
+      // last resort
+      const dataURL = (canvas.toDataURL ? canvas.toDataURL(type) : '');
+      const byteString = atob(dataURL.split(',')[1]||'');
+      const ab = new ArrayBuffer(byteString.length);
+      const ia = new Uint8Array(ab);
+      for (let i=0; i<byteString.length; i++){ ia[i] = byteString.charCodeAt(i); }
+      return Promise.resolve(new Blob([ia], {type}));
+    }
+
+    // Dithering helpers
+    function toGrayscale(rgba, gamma){
+      const g = new Uint8ClampedArray(rgba.length/4);
+      const invGamma = 1.0/gamma;
+      for (let i=0, j=0; i<rgba.length; i+=4, j++){
+        const r = Math.pow(rgba[i]/255, gamma);
+        const gg = Math.pow(rgba[i+1]/255, gamma);
+        const b = Math.pow(rgba[i+2]/255, gamma);
+        const lin = 0.2126*r + 0.7152*gg + 0.0722*b;
+        g[j] = Math.max(0, Math.min(255, Math.round(Math.pow(lin, invGamma)*255)));
+      }
+      return g;
+    }
+    function clamp8(v){ return v<0?0:(v>255?255:v); }
+    function ditherFS(g, W, H, th){
+      const p = new Float32Array(g);
+      const out = new Uint8Array(W*H);
+      for (let y=0; y<H; y++){
+        for (let x=0; x<W; x++){
+          const i = y*W + x;
+          const old = p[i];
+          const nw = old >= th ? 255 : 0;
+          out[i] = nw ? 1 : 0;
+          const err = old - nw;
+          if (x+1 < W) p[i+1] = clamp8(p[i+1] + err*7/16);
+          if (x-1 >= 0 && y+1 < H) p[i+W-1] = clamp8(p[i+W-1] + err*3/16);
+          if (y+1 < H) p[i+W] = clamp8(p[i+W] + err*5/16);
+          if (x+1 < W && y+1 < H) p[i+W+1] = clamp8(p[i+W+1] + err*1/16);
+        }
+      }
+      return out;
+    }
+    function ditherAtkinson(g, W, H, th){
+      const p = new Float32Array(g);
+      const out = new Uint8Array(W*H);
+      for (let y=0; y<H; y++){
+        for (let x=0; x<W; x++){
+          const i = y*W + x;
+          const old = p[i];
+          const nw = old >= th ? 255 : 0;
+          out[i] = nw ? 1 : 0;
+          const err = (old - nw)/8;
+          const spread = [[1,0],[2,0],[-1,1],[0,1],[1,1],[0,2]];
+          for (const [dx,dy] of spread){
+            const nx = x+dx, ny = y+dy;
+            if (nx>=0 && nx<W && ny>=0 && ny<H){
+              p[ny*W+nx] = clamp8(p[ny*W+nx] + err);
+            }
+          }
+        }
+      }
+      return out;
+    }
+    function bayer(n){
+      if (n===1) return [[0]];
+      const half = bayer(n/2);
+      const out = Array.from({length:n}, ()=>Array(n).fill(0));
+      for (let y=0; y<n/2; y++){
+        for (let x=0; x<n/2; x++){
+          const v = half[y][x];
+          out[y][x] = 4*v;
+          out[y][x+n/2] = 4*v + 2;
+          out[y+n/2][x] = 4*v + 3;
+          out[y+n/2][x+n/2] = 4*v + 1;
+        }
+      }
+      return out;
+    }
+    function ditherOrdered(g, W, H, n){
+      const M = bayer(n);
+      const out = new Uint8Array(W*H);
+      for (let y=0; y<H; y++){
+        for (let x=0; x<W; x++){
+          const i = y*W + x;
+          const t = (M[y % n][x % n] * 255) / (n*n);
+          out[i] = g[i] >= t ? 1 : 0;
+        }
+      }
+      return out;
+    }
+
+    // Minimal ZIP builder (stored)
+    class ZipBuilder{
+      constructor(){
+        this.files = [];
+        this.chunks = [];
+        this.offset = 0;
+        this.crcTable = ZipBuilder.makeCRCTable();
+      }
+      static makeCRCTable(){
+        const table = new Uint32Array(256);
+        for (let i=0;i<256;i++){
+          let c=i;
+          for (let j=0;j<8;j++){
+            c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+          }
+          table[i]=c>>>0;
+        }
+        return table;
+      }
+      crc32(u8){
+        let c = 0 ^ (-1);
+        for (let i=0;i<u8.length;i++){
+          c = (c >>> 8) ^ this.crcTable[(c ^ u8[i]) & 0xFF];
+        }
+        return (c ^ (-1)) >>> 0;
+      }
+      addFile(name, data){
+        name = name.replace(/\\/g,'/');
+        const enc = new TextEncoder();
+        const nameBytes = enc.encode(name);
+        const crc = this.crc32(data);
+        const compSize = data.length;
+        const uncompSize = data.length;
+        const dos = ZipBuilder.dosDateTime(new Date());
+        const localHeader = new DataView(new ArrayBuffer(30));
+        let p=0;
+        p = ZipBuilder.w32(localHeader, p, 0x04034b50);
+        p = ZipBuilder.w16(localHeader, p, 20);
+        p = ZipBuilder.w16(localHeader, p, 0);
+        p = ZipBuilder.w16(localHeader, p, 0);
+        p = ZipBuilder.w16(localHeader, p, dos.time);
+        p = ZipBuilder.w16(localHeader, p, dos.date);
+        p = ZipBuilder.w32(localHeader, p, crc);
+        p = ZipBuilder.w32(localHeader, p, compSize);
+        p = ZipBuilder.w32(localHeader, p, uncompSize);
+        p = ZipBuilder.w16(localHeader, p, nameBytes.length);
+        p = ZipBuilder.w16(localHeader, p, 0);
+        const offset = this.offset;
+        this.push(new Uint8Array(localHeader.buffer));
+        this.push(nameBytes);
+        this.push(data);
+        this.files.push({name, nameBytes, crc, compSize, uncompSize, offset, time:dos.time, date:dos.date});
+      }
+      push(u8){ this.chunks.push(u8); this.offset += u8.length; }
+      build(){
+        const centralChunks = [];
+        let centralSize = 0;
+        for (const f of this.files){
+          const dv = new DataView(new ArrayBuffer(46));
+          let p=0;
+          p = ZipBuilder.w32(dv, p, 0x02014b50);
+          p = ZipBuilder.w16(dv, p, 20);
+          p = ZipBuilder.w16(dv, p, 20);
+          p = ZipBuilder.w16(dv, p, 0);
+          p = ZipBuilder.w16(dv, p, 0);
+          p = ZipBuilder.w16(dv, p, f.time);
+          p = ZipBuilder.w16(dv, p, f.date);
+          p = ZipBuilder.w32(dv, p, f.crc);
+          p = ZipBuilder.w32(dv, p, f.compSize);
+          p = ZipBuilder.w32(dv, p, f.uncompSize);
+          p = ZipBuilder.w16(dv, p, f.nameBytes.length);
+          p = ZipBuilder.w16(dv, p, 0);
+          p = ZipBuilder.w16(dv, p, 0);
+          p = ZipBuilder.w16(dv, p, 0);
+          p = ZipBuilder.w16(dv, p, 0);
+          p = ZipBuilder.w32(dv, p, 0);
+          p = ZipBuilder.w32(dv, p, f.offset);
+          centralChunks.push(new Uint8Array(dv.buffer), f.nameBytes);
+          centralSize += dv.byteLength + f.nameBytes.length;
+        }
+        const centralOffset = this.offset;
+        for (const c of centralChunks){ this.push(c); }
+        const end = new DataView(new ArrayBuffer(22));
+        let p=0;
+        p = ZipBuilder.w32(end, p, 0x06054b50);
+        p = ZipBuilder.w16(end, p, 0);
+        p = ZipBuilder.w16(end, p, 0);
+        p = ZipBuilder.w16(end, p, this.files.length);
+        p = ZipBuilder.w16(end, p, this.files.length);
+        p = ZipBuilder.w32(end, p, centralSize);
+        p = ZipBuilder.w32(end, p, centralOffset);
+        p = ZipBuilder.w16(end, p, 0);
+        this.push(new Uint8Array(end.buffer));
+        return new Blob(this.chunks, {type: 'application/zip'});
+      }
+      static w16(dv, p, v){ dv.setUint16(p, v, true); return p+2; }
+      static w32(dv, p, v){ dv.setUint32(p, v, true); return p+4; }
+      static dosDateTime(d){
+        const year = d.getFullYear();
+        const y = Math.max(0, year - 1980);
+        const dosDate = (y << 9) | ((d.getMonth()+1) << 5) | d.getDate();
+        const dosTime = (d.getHours() << 11) | (d.getMinutes() << 5) | Math.floor(d.getSeconds()/2);
+        return {date: dosDate & 0xFFFF, time: dosTime & 0xFFFF};
+      }
+    }
+  })();
+  </script>
+</body>
+</html>
